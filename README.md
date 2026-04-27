@@ -1,63 +1,78 @@
 # E-commerce Chat AI
 
-API REST de e-commerce de zapatos con chat inteligente usando Clean Architecture y Google Gemini AI.
+API REST de e-commerce de zapatos con chat inteligente, construida como ejercicio de Clean Architecture para el curso de Arquitectura de Software (SI3001) en la Universidad EAFIT.
 
-**Universidad EAFIT — Arquitectura de Software**
+La idea fue simple: una tienda de zapatos donde puedes consultar el catálogo por endpoints normales, pero también chatear con un asistente de IA que conoce el inventario y recuerda lo que dijiste antes.
+
+**Universidad EAFIT — Arquitectura de Software**  
+**Autor:** Sebastian Acosta Molina
+
+---
 
 ## Tecnologías
 
-| Tecnología | Propósito |
+| Tecnología | Para qué se usa |
 |---|---|
-| FastAPI | Framework HTTP para los endpoints |
-| SQLAlchemy | ORM para SQLite |
-| Pydantic | Validación de datos en DTOs |
-| Google Gemini | Modelo de IA para el chat |
+| FastAPI | Los endpoints HTTP |
+| SQLAlchemy | ORM sobre SQLite |
+| Pydantic | Validación de datos en los DTOs |
+| Google Gemini | El modelo de IA que genera las respuestas del chat |
 | Docker | Containerización |
 | Pytest | Tests unitarios |
 
+---
+
 ## Arquitectura
 
-El proyecto usa Clean Architecture con 3 capas:
+El proyecto sigue Clean Architecture con 3 capas. La regla que traté de no romper nunca: **las dependencias solo apuntan hacia adentro**.
 
 ```
 src/
-├── domain/           # Entidades y reglas de negocio (sin dependencias externas)
-├── application/      # Casos de uso, servicios y DTOs
-└── infrastructure/   # FastAPI, SQLAlchemy, Gemini API
+├── domain/          # Entidades puras: Product, ChatMessage, ChatContext
+│                    # No importa nada de FastAPI ni SQLAlchemy
+├── application/     # Servicios que orquestan los casos de uso
+│                    # Solo conoce el dominio, no sabe de HTTP ni de SQLite
+└── infrastructure/  # FastAPI, SQLAlchemy, Gemini API
+                     # Implementa las interfaces del dominio
 ```
 
-La regla fundamental es que las dependencias solo apuntan hacia adentro:
-`Infrastructure → Application → Domain`. El dominio no sabe nada de FastAPI ni de SQLite.
+### Por qué estas decisiones
 
-## Requisitos previos
+**¿Por qué llamar a Gemini ANTES de guardar los mensajes?**  
+Si la IA falla (timeout, límite de API, etc.), no quiero dejar un mensaje del usuario sin respuesta guardado en la base de datos. Primero confirmo que tengo respuesta, después persisto los dos mensajes.
 
-- Python 3.11+
-- Docker y Docker Compose
-- API Key de Google Gemini (obtener en https://aistudio.google.com/app/apikey)
+**¿Por qué limitar el contexto a 6 mensajes?**  
+Incluir toda la conversación en el prompt hace que crezca con cada mensaje. Con 6 mensajes tengo suficiente contexto para que la IA sea coherente, sin que el prompt se vuelva enorme y lento.
+
+**¿Por qué interfaces en el dominio si solo uso SQLite?**  
+Porque los tests unitarios las necesitan — puedo pasar un mock en lugar del repositorio real y testear la lógica del servicio sin tocar la base de datos. Lo entendí cuando quise testear `ChatService` sin tener que levantar SQLite.
+
+**¿Por qué los productos se pasan completos a Gemini en cada request?**  
+Porque el catálogo es pequeño (10 productos) y así la IA siempre tiene el inventario actualizado. Si el catálogo fuera grande habría que filtrar antes de armar el prompt.
+
+---
 
 ## Instalación y ejecución
 
 ### Con Docker (recomendado)
 
 ```bash
-# 1. Clonar el repositorio
-git clone <repo-url>
-cd e-commerce-chat-ai
+git clone https://github.com/SebastianAc02/arch_software_entrega.git
+cd arch_software_entrega
 
-# 2. Configurar variables de entorno
 cp .env.example .env
-# Editar .env y agregar tu GEMINI_API_KEY
+# Editar .env y poner tu GEMINI_API_KEY
 
-# 3. Construir y levantar
 docker-compose up --build
 ```
+
+La API queda disponible en http://localhost:8000
 
 ### Sin Docker
 
 ```bash
-python -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate   # Mac/Linux
-# venv\Scripts\activate    # Windows
 
 pip install -r requirements.txt
 
@@ -67,21 +82,29 @@ cp .env.example .env
 uvicorn src.infrastructure.api.main:app --reload
 ```
 
+### Variables de entorno necesarias
+
+```bash
+GEMINI_API_KEY=tu_api_key_aqui          # Obtener en aistudio.google.com
+DATABASE_URL=sqlite:///./data/ecommerce_chat.db
+ENVIRONMENT=development
+```
+
+---
+
 ## Endpoints
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| GET | `/` | Info de la API |
-| GET | `/health` | Health check |
+| GET | `/` | Info básica de la API |
+| GET | `/health` | Verificar que está corriendo |
 | GET | `/products` | Listar todos los productos |
 | GET | `/products/{id}` | Buscar producto por ID |
 | POST | `/chat` | Enviar mensaje al asistente |
-| GET | `/chat/history/{session_id}` | Historial de una sesión |
-| DELETE | `/chat/history/{session_id}` | Limpiar historial |
+| GET | `/chat/history/{session_id}` | Ver historial de una sesión |
+| DELETE | `/chat/history/{session_id}` | Borrar historial |
 
-### Documentación interactiva
-
-Con la app corriendo, entra a http://localhost:8000/docs para ver y probar todos los endpoints en Swagger UI.
+Documentación interactiva disponible en http://localhost:8000/docs
 
 ### Ejemplo de uso del chat
 
@@ -91,48 +114,53 @@ curl -X POST http://localhost:8000/chat \
   -d '{"session_id": "usuario1", "message": "Busco zapatos Nike para correr talla 42"}'
 ```
 
-Respuesta:
+Respuesta real del sistema:
 ```json
 {
   "session_id": "usuario1",
   "user_message": "Busco zapatos Nike para correr talla 42",
-  "assistant_message": "Tengo el Air Zoom Pegasus 40 de Nike en talla 42 por $120, con 5 unidades disponibles. Es ideal para running con amortiguación de aire reactiva. ¿Te interesa?",
-  "timestamp": "2024-01-15T10:30:00"
+  "assistant_message": "¡Claro! Tenemos el Air Zoom Pegasus 40 de Nike ideal para correr, disponible en talla 42 por $120.0 y nos quedan 5 unidades en stock.\n\n¿Te gustaría saber más sobre ellos o buscar otras opciones?",
+  "timestamp": "2026-04-27T06:09:34.160239"
 }
 ```
+
+---
 
 ## Tests
 
 ```bash
 pytest
-pytest --tb=short -v   # con detalle
+pytest --tb=short -v   # con más detalle
 ```
+
+24 tests en total: 19 para las entidades del dominio y 5 para los servicios usando mocks.
+
+---
 
 ## Estructura completa
 
 ```
 e-commerce-chat-ai/
 ├── src/
-│   ├── config.py
+│   ├── config.py                      # Carga variables de entorno
 │   ├── domain/
-│   │   ├── entities.py       # Product, ChatMessage, ChatContext
-│   │   ├── repositories.py   # Interfaces IProductRepository, IChatRepository
-│   │   └── exceptions.py     # Excepciones de negocio
+│   │   ├── entities.py                # Product, ChatMessage, ChatContext
+│   │   ├── repositories.py            # Interfaces IProductRepository, IChatRepository
+│   │   └── exceptions.py              # ProductNotFoundError, ChatServiceError
 │   ├── application/
-│   │   ├── dtos.py           # DTOs con validación Pydantic
-│   │   ├── product_service.py
-│   │   └── chat_service.py
+│   │   ├── dtos.py                    # DTOs con validación Pydantic
+│   │   ├── product_service.py         # Casos de uso de productos
+│   │   └── chat_service.py            # Caso de uso del chat con IA
 │   └── infrastructure/
-│       ├── api/main.py       # Endpoints FastAPI
-│       ├── db/               # SQLAlchemy models, database setup, init data
-│       ├── repositories/     # Implementaciones SQL de los repositorios
-│       └── llm_providers/    # Integración con Gemini AI
+│       ├── api/main.py                # App FastAPI con todos los endpoints
+│       ├── db/                        # SQLAlchemy: setup, modelos ORM, datos iniciales
+│       ├── repositories/              # Implementaciones SQL de las interfaces
+│       └── llm_providers/             # Integración con Google Gemini
 ├── tests/
+│   ├── test_entities.py               # Tests del dominio
+│   └── test_services.py               # Tests de servicios con mocks
+├── evidencias/                        # Screenshots requeridos
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
 ```
-
-## Autor
-
-Sebastian Acosta Molina — Universidad EAFIT

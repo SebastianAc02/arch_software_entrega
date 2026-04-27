@@ -87,19 +87,7 @@ def health_check():
 
 @app.get("/products", response_model=List[ProductDTO])
 def get_products(db: Session = Depends(get_db)):
-    """
-    Retorna el catálogo completo de productos.
-
-    Args:
-        db (Session): Sesión de base de datos inyectada por FastAPI.
-
-    Returns:
-        List[ProductDTO]: Todos los productos registrados.
-
-    Example:
-        GET /products
-        Response: [{"id": 1, "name": "Air Zoom Pegasus 40", ...}, ...]
-    """
+    """Retorna todos los productos del catálogo."""
     service = ProductService(SQLProductRepository(db))
     return service.get_all_products()
 
@@ -129,25 +117,10 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 @app.post("/chat", response_model=ChatMessageResponseDTO)
 async def chat(request: ChatMessageRequestDTO, db: Session = Depends(get_db)):
     """
-    Procesa un mensaje del usuario y retorna la respuesta generada por Gemini AI.
-
-    Crea todos los servicios necesarios, delega al ChatService y maneja
-    errores convirtiéndolos en respuestas HTTP apropiadas.
-
-    Args:
-        request (ChatMessageRequestDTO): Body con session_id y message.
-        db (Session): Sesión de base de datos.
-
-    Returns:
-        ChatMessageResponseDTO: Respuesta del asistente junto al mensaje original.
+    Recibe un mensaje y retorna la respuesta de Gemini.
 
     Raises:
-        HTTPException: 500 si hay un error al llamar a la IA o al persistir.
-
-    Example:
-        POST /chat
-        Body: {"session_id": "user123", "message": "Busco zapatos para correr"}
-        Response: {"session_id": "user123", "user_message": "...", "assistant_message": "..."}
+        HTTPException: 500 si falla la IA o la persistencia.
     """
     service = ChatService(
         product_repo=SQLProductRepository(db),

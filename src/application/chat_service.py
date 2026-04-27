@@ -1,13 +1,9 @@
 """
-Servicio de aplicación para el chat inteligente con IA.
+Caso de uso principal del sistema: procesar un mensaje de chat con IA.
 
-Este es el caso de uso más complejo del sistema: orquesta tres colaboradores
-(repositorio de productos, repositorio de chat y servicio de IA) para procesar
-un mensaje y generar una respuesta contextualizada.
-
-La IA no se llama directamente desde el endpoint HTTP porque la lógica de
-"qué productos incluir en el contexto" y "cómo construir el historial"
-es decisión de la aplicación, no de la infraestructura.
+Coordina tres cosas: obtener el catálogo de productos, recuperar el historial
+de la conversación, y llamar a Gemini con toda esa información para que la
+respuesta sea coherente con lo que el usuario ya preguntó antes.
 """
 
 from datetime import datetime
@@ -25,19 +21,10 @@ from src.application.dtos import (
 
 class ChatService:
     """
-    Servicio de aplicación que gestiona el flujo completo del chat con IA.
+    Orquesta el flujo completo de una interacción de chat.
 
-    Implementa el patrón de Inyección de Dependencias: recibe los tres
-    colaboradores que necesita en el constructor, sin crearlos internamente.
-    Esto facilita el testing (se pasan mocks) y el desacoplamiento entre capas.
-
-    Attributes:
-        _product_repo (IProductRepository): Repositorio de productos para
-            obtener el catálogo que la IA usará como contexto.
-        _chat_repo (IChatRepository): Repositorio de chat para guardar y
-            recuperar el historial conversacional.
-        _ai_service: Servicio de IA (GeminiService) para generar respuestas.
-            Se tipifica como Any para evitar dependencia circular con infraestructura.
+    Recibe los repositorios y el servicio de IA como parámetros (no los crea
+    internamente) para poder pasar mocks en los tests sin tocar la BD.
     """
 
     def __init__(
@@ -62,29 +49,13 @@ class ChatService:
         self, request: ChatMessageRequestDTO
     ) -> ChatMessageResponseDTO:
         """
-        Procesa un mensaje del usuario y retorna la respuesta del asistente de IA.
+        Procesa un mensaje y retorna la respuesta de la IA.
 
-        Flujo completo del caso de uso:
-        1. Obtiene todos los productos disponibles (contexto para la IA).
-        2. Recupera los últimos 6 mensajes de la sesión (memoria conversacional).
-        3. Construye un ChatContext con ese historial.
-        4. Llama a la IA con: mensaje actual + productos + contexto previo.
-        5. Persiste el mensaje del usuario en la base de datos.
-        6. Persiste la respuesta del asistente en la base de datos.
-        7. Retorna un DTO con ambos mensajes y el timestamp.
-
-        El orden importa: primero se llama a la IA (puede fallar), luego
-        se persiste. Así no guardamos un mensaje sin respuesta en caso de error.
-
-        Args:
-            request (ChatMessageRequestDTO): Datos del mensaje entrante.
-
-        Returns:
-            ChatMessageResponseDTO: Intercambio completo (usuario + asistente).
+        Llama a Gemini ANTES de persistir — si falla la IA, no guardamos
+        un mensaje del usuario sin respuesta en la BD.
 
         Raises:
-            ChatServiceError: Si ocurre algún error al llamar a la IA o al
-                persistir los mensajes.
+            ChatServiceError: Si falla la llamada a Gemini o la persistencia.
         """
         try:
             products = self._product_repo.get_all()
